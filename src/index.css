@@ -1,0 +1,20 @@
+@import "tailwindcss";
+
+/* TradingView'e yakın koyu palet; yeşil/kırmızı yalnızca kâr-zarar için */
+@theme {
+  --font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+  --color-ink-950: #131722;
+  --color-ink-900: #171b28;
+  --color-ink-800: #1c2030;
+  --color-ink-700: #252a3a;
+  --color-line: #2a2e39;
+  --color-up: #22ab94;
+  --color-down: #f23645;
+  --color-brand: #2962ff;
+  --color-brand-soft: #6f98ff;
+}
+
+body { background: var(--color-ink-950); color: #d1d4dc; }
+.num { font-variant-numeric: tabular-nums; }
+:focus-visible { outline: 2px solid var(--color-brand-soft); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
