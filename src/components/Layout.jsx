@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom'
-import { CandlestickChart, LayoutDashboard, LogOut } from 'lucide-react'
+import { CandlestickChart, BarChart3, LayoutDashboard, LogOut } from 'lucide-react'
 import { useAuth } from '../lib/auth.jsx'
 import { useStore } from '../lib/store.jsx'
 import { computeMetrics, resolveStatus, money } from '../lib/metrics.js'
@@ -29,6 +29,9 @@ export default function Layout({ children }) {
         <NavLink to="/" end className={side}>
           <span className="flex items-center gap-2"><LayoutDashboard size={16} />Genel bakış</span>
         </NavLink>
+        <NavLink to="/analysis" className={side}>
+          <span className="flex items-center gap-2"><BarChart3 size={16} />Analiz</span>
+        </NavLink>
         <p className="mb-1 mt-5 px-3 text-xs text-slate-500">Hesaplar</p>
         {rows.map(({ a, m, s }) => (
           <NavLink key={a.id} to={`/accounts/${a.id}`} className={side}>
@@ -54,6 +57,7 @@ export default function Layout({ children }) {
         </div>
         <nav className="flex gap-1 overflow-x-auto px-3 py-2">
           <NavLink to="/" end className={tab}>Genel bakış</NavLink>
+          <NavLink to="/analysis" className={tab}>Analiz</NavLink>
           {rows.map(({ a, s }) => (
             <NavLink key={a.id} to={`/accounts/${a.id}`} className={tab}>
               <span className={`size-2 rounded-full ${dot[s]}`} />{a.name}
