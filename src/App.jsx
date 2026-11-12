@@ -3,6 +3,7 @@ import Layout from './components/Layout.jsx'
 import Home from './pages/Home.jsx'
 import AccountDetail from './pages/AccountDetail.jsx'
 import Analysis from './pages/Analysis.jsx'
+import Check from './pages/Check.jsx'
 import Login from './pages/Login.jsx'
 import { useAuth } from './lib/auth.jsx'
 import { StoreProvider } from './lib/store.jsx'
@@ -16,6 +17,7 @@ export default function App() {
       <Layout>
         <Routes>
           <Route path="/" element={<Home />} />
+          <Route path="/check" element={<Check />} />
           <Route path="/analysis" element={<Analysis />} />
           <Route path="/accounts/:id" element={<AccountDetail />} />
         </Routes>
