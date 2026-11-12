@@ -1,123 +1,151 @@
-import { useMemo, useState } from 'react'
-import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
+import { useEffect, useState } from 'react'
+import { ImagePlus, Pencil, Plus, Trash2, X } from 'lucide-react'
 import { useStore } from '../lib/store.jsx'
-import { analyze } from '../lib/analytics.js'
-import { money, pnlCls } from '../lib/metrics.js'
-import { StatCard, inputCls } from '../components/ui.jsx'
+import { shrink } from '../lib/image.js'
+import { Field, Modal, inputCls, btnPrimary } from '../components/ui.jsx'
 
-const tick = { fill: '#787b86', fontSize: 11 }
-const box = 'rounded-lg border border-line bg-ink-800 p-4 sm:p-5'
-const fmtPF = (v) => (v === Infinity ? '∞' : v.toFixed(2))
+const today = () => new Date().toLocaleDateString('sv-SE')
+const fmt = (d) => d.split('-').reverse().join('.')
 
-function Bars({ data }) {
+function AnalysisForm({ item, urls, onDone }) {
+  const { saveAnalysis } = useStore()
+  const [f, setF] = useState({ date: item?.date ?? today(), title: item?.title ?? '', body: item?.body ?? '' })
+  const [imgs, setImgs] = useState((item?.images ?? []).map((p) => ({ key: p, src: urls[p] ?? '', value: p })))
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState('')
+
+  const add = async (files) => {
+    const ok = [...files].filter((x) => x.type.startsWith('image/'))
+    const out = await Promise.all(ok.map(async (x) => { const d = await shrink(x); return { key: crypto.randomUUID(), src: d, value: d } }))
+    setImgs((s) => [...s, ...out])
+  }
+  const onPaste = (e) => {
+    const files = [...e.clipboardData.files].filter((x) => x.type.startsWith('image/'))
+    if (files.length) { e.preventDefault(); add(files) }
+  }
+  const submit = async (e) => {
+    e.preventDefault()
+    setBusy(true); setErr('')
+    try {
+      await saveAnalysis({ id: item?.id, ...f, title: f.title.trim(), body: f.body.trim(), images: imgs.map((i) => i.value) })
+      onDone()
+    } catch (e2) { setErr(e2.message || 'Kaydedilemedi'); setBusy(false) }
+  }
+
   return (
-    <div className="h-52">
-      <ResponsiveContainer>
-        <BarChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-          <CartesianGrid stroke="#2a2e39" strokeDasharray="3 3" vertical={false} />
-          <XAxis dataKey="label" tick={tick} tickLine={false} axisLine={false} />
-          <YAxis tick={tick} tickLine={false} axisLine={false} width={50} tickFormatter={(v) => '$' + v} />
-          <ReferenceLine y={0} stroke="#787b86" />
-          <Tooltip cursor={{ fill: 'rgba(255,255,255,0.04)' }} content={({ active, payload }) => {
-            if (!active || !payload?.length) return null
-            const d = payload[0].payload
-            return <div className="rounded-md border border-line bg-ink-900 px-3 py-2 text-xs"><p className="text-slate-400">{d.label}, {d.n} işlem</p><p className={`num text-sm font-semibold ${pnlCls(d.pnl)}`}>{money(d.pnl)}</p></div>
-          }} />
-          <Bar dataKey="pnl" radius={[2, 2, 0, 0]}>{data.map((d, i) => <Cell key={i} fill={d.pnl >= 0 ? '#22ab94' : '#f23645'} />)}</Bar>
-        </BarChart>
-      </ResponsiveContainer>
-    </div>
-  )
-}
+    <form onSubmit={submit} onPaste={onPaste} className="grid gap-4 sm:grid-cols-2">
+      <Field label="Tarih"><input type="date" required className={inputCls} value={f.date} onChange={(e) => setF({ ...f, date: e.target.value })} /></Field>
+      <Field label="Başlık (isteğe bağlı)"><input className={inputCls} placeholder="EURUSD günlük kurgu" value={f.title} onChange={(e) => setF({ ...f, title: e.target.value })} /></Field>
 
-function Rows({ title, rows, label = (r) => r.key }) {
-  return (
-    <section className={box}>
-      <h2 className="mb-3 text-sm font-medium text-slate-300">{title}</h2>
-      <div className="overflow-x-auto">
-        <table className="num w-full min-w-[420px] text-sm">
-          <thead><tr className="border-b border-line text-left text-xs text-slate-400">
-            {['', 'İşlem', 'Win rate', 'Ort. K/Z', 'Toplam K/Z'].map((h) => <th key={h} className="py-2 pr-3 font-medium">{h}</th>)}
-          </tr></thead>
-          <tbody>{rows.map((r) => (
-            <tr key={r.key} className="border-b border-line/60 last:border-0">
-              <td className="py-2 pr-3 font-medium text-white">{label(r)}</td>
-              <td className="py-2 pr-3">{r.n}</td>
-              <td className="py-2 pr-3">{r.winRate.toFixed(0)}%</td>
-              <td className={`py-2 pr-3 ${pnlCls(r.avg)}`}>{money(r.avg)}</td>
-              <td className={`py-2 font-medium ${pnlCls(r.pnl)}`}>{money(r.pnl)}</td>
-            </tr>))}</tbody>
-      </table></div>
-    </section>
+      <div className="sm:col-span-2">
+        <span className="mb-1 block text-xs font-medium text-slate-400">Ekran görüntüleri</span>
+        <label className="flex cursor-pointer flex-col items-center gap-1 rounded-md border border-dashed border-line bg-ink-950 py-6 text-sm text-slate-400 hover:border-brand-soft/60">
+          <ImagePlus size={20} />
+          Dosya seç (birden fazla olabilir) veya Ctrl+V ile yapıştır
+          <input type="file" accept="image/*" multiple hidden onChange={(e) => { add(e.target.files); e.target.value = '' }} />
+        </label>
+        {imgs.length > 0 && (
+          <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
+            {imgs.map((i) => (
+              <div key={i.key} className="relative">
+                <img src={i.src} alt="Önizleme" className="aspect-video w-full rounded-md border border-line object-cover" />
+                <button type="button" aria-label="Görüntüyü kaldır" onClick={() => setImgs((s) => s.filter((x) => x.key !== i.key))}
+                        className="absolute right-1 top-1 rounded-full bg-black/70 p-1 text-white"><X size={14} /></button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <Field label="Analizin / beklentin" className="sm:col-span-2">
+        <textarea rows={7} className={inputCls} placeholder="Bugün şunu bekliyorum..." value={f.body} onChange={(e) => setF({ ...f, body: e.target.value })} />
+      </Field>
+
+      {err && <p className="text-sm text-down sm:col-span-2">{err}</p>}
+      <div className="flex justify-end gap-2 sm:col-span-2">
+        <button type="button" onClick={onDone} className="rounded-md px-4 py-2 text-sm text-slate-300 hover:bg-white/5">Vazgeç</button>
+        <button disabled={busy} className={`${btnPrimary} disabled:opacity-60`}>{busy ? 'Kaydediliyor…' : 'Kaydet'}</button>
+      </div>
+    </form>
   )
 }
 
 export default function Analysis() {
-  const { accounts, trades } = useStore()
-  const [acc, setAcc] = useState('all')
-  const a = useMemo(() => analyze(acc === 'all' ? trades : trades.filter((t) => t.accountId === acc)), [acc, trades])
-  const color = a.total >= 0 ? '#22ab94' : '#f23645'
+  const { analyses, analysesOk, signUrls, deleteAnalysis } = useStore()
+  const [urls, setUrls] = useState({})
+  const [edit, setEdit] = useState(null) // null | 'new' | analiz
+  const [zoom, setZoom] = useState('')
+
+  const sorted = [...analyses].sort((a, b) => b.date.localeCompare(a.date))
+  const key = analyses.flatMap((a) => a.images).join('|')
+  useEffect(() => {
+    const paths = analyses.flatMap((a) => a.images)
+    let live = true
+    signUrls(paths).then((m) => live && setUrls(m))
+    return () => { live = false }
+  }, [key, signUrls]) // eslint-disable-line
+
+  useEffect(() => {
+    if (!zoom) return
+    const h = (e) => e.key === 'Escape' && setZoom('')
+    window.addEventListener('keydown', h)
+    return () => window.removeEventListener('keydown', h)
+  }, [zoom])
+
+  const remove = async (a) => {
+    if (!confirm('Bu analiz silinsin mi?')) return
+    try { await deleteAnalysis(a.id) } catch (e) { alert(e.message) }
+  }
 
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-semibold text-white">Analiz</h1>
-        <select value={acc} onChange={(e) => setAcc(e.target.value)} className={`${inputCls} !w-auto`} aria-label="Hesap">
-          <option value="all">Tüm hesaplar</option>
-          {accounts.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
-        </select>
+        {analysesOk && <button onClick={() => setEdit('new')} className={btnPrimary}><Plus size={16} /> Yeni analiz</button>}
       </div>
 
-      {!a.n ? (
-        <p className="rounded-lg border border-dashed border-line p-10 text-center text-sm text-slate-400">Analiz için henüz trade yok.</p>
-      ) : (<>
-        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-          <StatCard label="Toplam K/Z" value={money(a.total)} cls={pnlCls(a.total)} sub={`${a.n} işlem`} />
-          <StatCard label="Win rate" value={`${a.winRate.toFixed(0)}%`} />
-          <StatCard label="Profit factor" value={fmtPF(a.profitFactor)} sub="brüt kâr / brüt zarar" />
-          <StatCard label="Beklenti / işlem" value={money(a.expectancy)} cls={pnlCls(a.expectancy)} />
-          <StatCard label="Ort. kazanç" value={money(a.avgWin)} cls="text-up" />
-          <StatCard label="Ort. kayıp" value={money(-a.avgLoss)} cls="text-down" />
-          <StatCard label="Kazanç/kayıp oranı" value={a.payoff.toFixed(2)} sub="ort. kazanç / ort. kayıp" />
-          <StatCard label="En iyi / en kötü" value={money(a.best, 0)} sub={`en kötü ${money(a.worst, 0)}`} cls="text-up" />
-          <StatCard label="En uzun kazanç serisi" value={a.maxWin} />
-          <StatCard label="En uzun kayıp serisi" value={a.maxLoss} cls={a.maxLoss >= 3 ? 'text-down' : 'text-white'} />
+      {!analysesOk ? (
+        <p className="rounded-lg border border-dashed border-line p-6 text-sm text-slate-300">
+          Analiz tablosu henüz kurulmamış. Supabase SQL Editor'de <code>db/analyses.sql</code> dosyasındaki kodu çalıştırıp sayfayı yenile.
+        </p>
+      ) : !sorted.length ? (
+        <p className="rounded-lg border border-dashed border-line p-10 text-center text-sm text-slate-400">Henüz analiz yok. İlk kurgunu ekleyerek başla.</p>
+      ) : (
+        <div className="space-y-4">
+          {sorted.map((a) => (
+            <article key={a.id} className="rounded-lg border border-line bg-ink-800 p-4 sm:p-5">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="num text-xs text-slate-400">{fmt(a.date)}</p>
+                  {a.title && <h2 className="mt-0.5 font-semibold text-white">{a.title}</h2>}
+                </div>
+                <div className="flex gap-1 text-slate-400">
+                  <button onClick={() => setEdit(a)} aria-label="Düzenle" className="rounded p-1.5 hover:bg-white/5 hover:text-white"><Pencil size={15} /></button>
+                  <button onClick={() => remove(a)} aria-label="Sil" className="rounded p-1.5 hover:bg-white/5 hover:text-down"><Trash2 size={15} /></button>
+                </div>
+              </div>
+              {a.images.length > 0 && (
+                <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  {a.images.map((p) => urls[p]
+                    ? <img key={p} src={urls[p]} alt="Analiz görüntüsü" onClick={() => setZoom(urls[p])} className="w-full cursor-zoom-in rounded-md border border-line bg-black object-contain" />
+                    : <div key={p} className="grid aspect-video place-items-center rounded-md border border-line text-xs text-slate-500">Yükleniyor…</div>)}
+                </div>
+              )}
+              {a.body && <p className="mt-3 whitespace-pre-wrap text-sm leading-relaxed text-slate-300">{a.body}</p>}
+            </article>
+          ))}
         </div>
+      )}
 
-        <section className={box}>
-          <h2 className="mb-4 text-sm font-medium text-slate-300">Kümülatif K/Z</h2>
-          <div className="h-64">
-            <ResponsiveContainer>
-              <AreaChart data={a.curve} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-                <defs><linearGradient id="cum" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={color} stopOpacity={0.3} /><stop offset="100%" stopColor={color} stopOpacity={0} /></linearGradient></defs>
-                <CartesianGrid stroke="#2a2e39" strokeDasharray="3 3" vertical={false} />
-                <XAxis dataKey="n" tick={tick} tickLine={false} axisLine={false} />
-                <YAxis tick={tick} tickLine={false} axisLine={false} width={54} tickFormatter={(v) => '$' + v} />
-                <ReferenceLine y={0} stroke="#787b86" strokeDasharray="4 4" />
-                <Tooltip content={({ active, payload }) => {
-                  if (!active || !payload?.length) return null
-                  const d = payload[0].payload
-                  return <div className="rounded-md border border-line bg-ink-900 px-3 py-2 text-xs"><p className="text-slate-400">{d.date}, {d.symbol}</p><p className="num text-sm font-semibold text-white">{money(d.cum)}</p></div>
-                }} />
-                <Area type="monotone" dataKey="cum" stroke={color} strokeWidth={2} fill="url(#cum)" />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
-        </section>
+      <Modal open={!!edit} onClose={() => setEdit(null)} wide title={edit && edit !== 'new' ? 'Analizi düzenle' : 'Yeni analiz'}>
+        {edit && <AnalysisForm item={edit === 'new' ? null : edit} urls={urls} onDone={() => setEdit(null)} />}
+      </Modal>
 
-        <div className="grid gap-6 lg:grid-cols-2">
-          <section className={box}><h2 className="mb-3 text-sm font-medium text-slate-300">Haftanın gününe göre K/Z</h2><Bars data={a.byWeekday} /></section>
-          <section className={box}><h2 className="mb-3 text-sm font-medium text-slate-300">Saate göre K/Z</h2><Bars data={a.byHour} /></section>
+      {zoom && (
+        <div className="fixed inset-0 z-[60] grid cursor-zoom-out place-items-center bg-black/90 p-4" onClick={() => setZoom('')}>
+          <img src={zoom} alt="Büyük görüntü" className="max-h-full max-w-full object-contain" />
         </div>
-
-        <div className="grid gap-6 lg:grid-cols-2">
-          <Rows title="Enstrümana göre" rows={a.bySymbol} />
-          <div className="space-y-6">
-            <Rows title="Yöne göre" rows={a.bySide} />
-            <Rows title="Aylık" rows={a.byMonth} />
-          </div>
-        </div>
-      </>)}
+      )}
     </div>
   )
 }

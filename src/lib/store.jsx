@@ -22,6 +22,7 @@ const fromTrade = (r) => ({
   entry: num(r.entry_price), exit: num(r.exit_price), size: num(r.size), pnl: num(r.pnl),
   pips: num(r.pips) ?? 0, note: r.note ?? '', screenshot: r.screenshot_url ?? '',
 })
+const fromAnalysis = (r) => ({ id: r.id, date: r.analysis_date, title: r.title ?? '', body: r.body ?? '', images: r.images ?? [] })
 const toTrade = (t, screenshot) => ({
   account_id: t.accountId, opened_at: new Date(t.date).toISOString(), symbol: t.symbol, side: t.side,
   entry_price: t.entry, exit_price: t.exit, size: t.size, pnl: t.pnl, pips: t.pips,
@@ -65,15 +66,19 @@ export const useStore = () => useContext(Ctx)
 
 export function StoreProvider({ children }) {
   const { user } = useAuth()
-  const [db, setDb] = useState({ accounts: [], trades: [] })
+  const [db, setDb] = useState({ accounts: [], trades: [], analyses: [], analysesOk: true })
   const [state, setState] = useState({ loading: true, error: '' })
   const [local, setLocal] = useState(readLocal)
 
   const load = useCallback(async () => {
     setState({ loading: true, error: '' })
     try {
-      const [a, t] = await Promise.all([fetchAll('accounts', 'created_at'), fetchAll('trades', 'opened_at')])
-      setDb({ accounts: a.map(fromAccount), trades: t.map(fromTrade) })
+      // Analiz tablosu kurulmamışsa uygulamanın geri kalanı yine çalışır.
+      const [a, t, n] = await Promise.all([
+        fetchAll('accounts', 'created_at'), fetchAll('trades', 'opened_at'),
+        fetchAll('analyses', 'created_at').then((r) => ({ ok: true, r })).catch(() => ({ ok: false, r: [] })),
+      ])
+      setDb({ accounts: a.map(fromAccount), trades: t.map(fromTrade), analyses: n.r.map(fromAnalysis), analysesOk: n.ok })
       setState({ loading: false, error: '' })
     } catch (e) {
       setState({ loading: false, error: e.message || 'Veriler yüklenemedi' })
@@ -104,6 +109,32 @@ export function StoreProvider({ children }) {
       setDb((s) => ({ ...s, trades: s.trades.filter((x) => x.id !== id) }))
     },
     signUrl,
+    async signUrls(paths) {
+      if (!paths.length) return {}
+      const { data } = await supabase.storage.from(BUCKET).createSignedUrls(paths, 3600)
+      return Object.fromEntries((data || []).filter((d) => d.signedUrl).map((d) => [d.path, d.signedUrl]))
+    },
+    // images: yeni görüntüler data URL, mevcutlar storage yolu
+    async saveAnalysis({ id, date, title, body, images }) {
+      const paths = []
+      for (const im of images) paths.push(im.startsWith('data:') ? await uploadShot(user.id, im) : im)
+      const row = { analysis_date: date, title: title || null, body: body || null, images: paths }
+      const q = id ? supabase.from('analyses').update(row).eq('id', id) : supabase.from('analyses').insert(row)
+      const { data, error } = await q.select().single()
+      if (error) throw error
+      const prev = id ? db.analyses.find((x) => x.id === id) : null
+      const gone = prev ? prev.images.filter((p) => !paths.includes(p)) : []
+      if (gone.length) supabase.storage.from(BUCKET).remove(gone)
+      const item = fromAnalysis(data)
+      setDb((s) => ({ ...s, analyses: id ? s.analyses.map((x) => (x.id === id ? item : x)) : [...s.analyses, item] }))
+    },
+    async deleteAnalysis(id) {
+      const a = db.analyses.find((x) => x.id === id)
+      const { error } = await supabase.from('analyses').delete().eq('id', id)
+      if (error) throw error
+      if (a?.images.length) supabase.storage.from(BUCKET).remove(a.images)
+      setDb((s) => ({ ...s, analyses: s.analyses.filter((x) => x.id !== id) }))
+    },
     // Tarayıcıdaki (localStorage) eski veriyi Supabase'e taşır.
     async importLocal() {
       const src = readLocal()
@@ -130,7 +161,7 @@ export function StoreProvider({ children }) {
       setLocal(null)
       await load()
     },
-  }), [user, db.trades, load])
+  }), [user, db.trades, db.analyses, load])
 
   if (state.loading)
     return <div className="grid min-h-screen place-items-center text-sm text-slate-400">Yükleniyor…</div>
